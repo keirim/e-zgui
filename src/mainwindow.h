@@ -39,6 +39,9 @@ private slots:
     void copyUrl();
     void openImageUrl();
     void openDeleteUrl();
+    void checkAndPromptApiKey();
+    void validateApiKeyResponse(QNetworkReply* reply);
+    void uploadFile(const QString& filePath);
     void previewImageDownloaded(QNetworkReply* reply);
 
 private:

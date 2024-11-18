@@ -298,7 +298,8 @@ void MainWindow::downloadPreviewImage()
 {
     if (m_currentImageUrl.isEmpty()) return;
     
-    QNetworkRequest request(QUrl(m_currentImageUrl));
+    QNetworkRequest request;
+    request.setUrl(QUrl(m_currentImageUrl));
     QNetworkReply* reply = m_networkManager.get(request);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -457,16 +458,10 @@ void MainWindow::saveApiKey()
 
 void MainWindow::checkAndPromptApiKey()
 {
-    if (hasValidApiKey()) {
-        m_statusLabel->setText("✓ API Key Configured");
-        m_statusLabel->setStyleSheet("color: #00ff00;");
-        m_apiKeyWidget->hide();
-        m_dropArea->setEnabled(true);
-    } else {
-        m_statusLabel->setText("✗ API Key Not Configured");
-        m_statusLabel->setStyleSheet("color: #ff4444;");
-        m_apiKeyWidget->show();
-        m_dropArea->setEnabled(false);
+    if (!hasValidApiKey()) {
+        QMessageBox::warning(this, "API Key Required",
+                           "Please enter a valid API key before uploading files.");
+        m_apiKeyInput->setFocus();
     }
 }
 
@@ -614,9 +609,9 @@ void MainWindow::uploadFile(const QString& filePath)
     connect(m_currentUpload, &QNetworkReply::finished,
             this, &MainWindow::uploadFinished);
     
-    m_dropArea->setEnabled(false);
     m_progressBar->setValue(0);
     m_progressBar->show();
+    m_dropArea->setEnabled(false);
 }
 
 void MainWindow::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
