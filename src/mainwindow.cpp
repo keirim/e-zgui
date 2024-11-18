@@ -394,60 +394,51 @@ void MainWindow::uploadFile(const QString& filePath)
 {
     qDebug() << "Starting upload for file:" << filePath;
     
-    QFile* file = new QFile(filePath);
-    if (!file->open(QIODevice::ReadOnly)) {
-        QString error = QString("Could not open file for upload: %1").arg(file->errorString());
-        qDebug() << "Error:" << error;
-        QMessageBox::warning(this, "Error", error);
-        file->deleteLater();
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "Failed to open file:" << file.errorString();
+        QMessageBox::warning(this, "Error", "Failed to open file: " + file.errorString());
         return;
     }
-
-    qDebug() << "File opened successfully. Size:" << file->size() << "bytes";
     
-    // Read file content
-    QByteArray fileData = file->readAll();
-    file->close();
-    file->deleteLater();
-
-    // Create the network request
-    QNetworkRequest request(QUrl("https://api.e-z.host/files"));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "multipart/form-data; boundary=boundary");
-    request.setRawHeader("key", m_apiKey.toUtf8());
-
-    // Create multipart data
-    QByteArray data;
-    data.append("--boundary\r\n");
-    data.append("Content-Disposition: form-data; name=\"file\"; filename=\"");
-    data.append(QFileInfo(filePath).fileName().toUtf8());
-    data.append("\"\r\n");
-    data.append("Content-Type: application/octet-stream\r\n");
-    data.append("\r\n");
-    data.append(fileData);
-    data.append("\r\n");
-    data.append("--boundary--\r\n");
-
-    qDebug() << "Sending request to:" << request.url().toString();
+    qDebug() << "File opened successfully. Size:" << file.size() << "bytes";
+    
+    QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    
+    // Add file part
+    QHttpPart filePart;
+    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("application/octet-stream"));
+    filePart.setHeader(QNetworkRequest::ContentDispositionHeader, 
+                      QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
+                              .arg(QFileInfo(filePath).fileName())));
+    filePart.setBodyDevice(&file);
+    multiPart->append(filePart);
+    
+    // Create and send request
+    QUrl url("https://api.e-z.host/files");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                     QString("multipart/form-data; boundary=%1").arg(multiPart->boundary().data()));
+    request.setRawHeader("Key", m_apiKey.toUtf8());
+    
+    qDebug() << "Sending request to:" << url.toString();
     qDebug() << "Headers:";
     qDebug() << "- Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader).toString();
     qDebug() << "- Key:" << m_apiKey.left(4) + "..." << "(truncated for security)";
     
-    m_currentUpload = m_networkManager.post(request, data);
-    
-    m_progressBar->setValue(0);
-    m_progressBar->show();
-    m_selectButton->setEnabled(false);
+    m_currentUpload = m_networkManager.post(request, multiPart);
+    m_currentUpload->setProperty("filePath", filePath);
+    multiPart->setParent(m_currentUpload);
+    file.setParent(m_currentUpload);
     
     connect(m_currentUpload, &QNetworkReply::uploadProgress,
             this, &MainWindow::uploadProgress);
     connect(m_currentUpload, &QNetworkReply::finished,
             this, &MainWindow::uploadFinished);
     
-    connect(m_currentUpload, &QNetworkReply::errorOccurred,
-            this, [this](QNetworkReply::NetworkError error) {
-                qDebug() << "Network error occurred:" << error;
-                qDebug() << "Error string:" << m_currentUpload->errorString();
-            });
+    m_dropArea->setEnabled(false);
+    m_progressBar->setValue(0);
+    m_progressBar->show();
 }
 
 void MainWindow::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
@@ -489,17 +480,27 @@ void MainWindow::uploadFinished()
 
 void MainWindow::showUploadResult(const QByteArray& response)
 {
+    qDebug() << "Raw response:" << response;
+    
     QJsonDocument doc = QJsonDocument::fromJson(response);
     QJsonObject obj = doc.object();
+    
+    qDebug() << "Parsed JSON:" << doc.toJson();
     
     if (obj.contains("success") && obj["success"].toBool()) {
         QString imageUrl = obj["imageUrl"].toString();
         QString rawUrl = obj["rawUrl"].toString();
         QString deleteUrl = obj["deletionUrl"].toString();
         
+        qDebug() << "Extracted URLs:";
+        qDebug() << "- Image URL:" << imageUrl;
+        qDebug() << "- Raw URL:" << rawUrl;
+        qDebug() << "- Delete URL:" << deleteUrl;
+        
         updatePreviewPanel(imageUrl, rawUrl, deleteUrl);
     } else {
         QString error = obj["message"].toString("Upload failed");
+        qDebug() << "Upload failed:" << error;
         QMessageBox::warning(this, "Error", error);
         clearPreviewPanel();
     }
@@ -510,21 +511,43 @@ void MainWindow::showUploadResult(const QByteArray& response)
 
 void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
 {
+    qDebug() << "Updating preview panel with URLs:";
+    qDebug() << "- Image URL:" << imageUrl;
+    qDebug() << "- Raw URL:" << rawUrl;
+    qDebug() << "- Delete URL:" << deleteUrl;
+    
     m_currentImageUrl = imageUrl;
     m_currentRawUrl = rawUrl;
     m_currentDeleteUrl = deleteUrl;
     
-    // Store the file path before starting the preview download
+    if (!m_currentUpload) {
+        qDebug() << "Error: m_currentUpload is null";
+        return;
+    }
+    
     QString filePath = m_currentUpload->property("filePath").toString();
+    qDebug() << "File path from property:" << filePath;
+    
+    if (filePath.isEmpty()) {
+        qDebug() << "Error: File path is empty";
+        return;
+    }
+    
     QFileInfo fileInfo(filePath);
+    qDebug() << "File info:";
+    qDebug() << "- Name:" << fileInfo.fileName();
+    qDebug() << "- Size:" << fileInfo.size() << "bytes";
+    qDebug() << "- Exists:" << fileInfo.exists();
     
     m_fileNameLabel->setText(fileInfo.fileName());
     QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
     m_fileSizeLabel->setText(size);
     
     if (isImageFile(filePath)) {
+        qDebug() << "Starting preview download for image file";
         downloadPreviewImage();
     } else {
+        qDebug() << "Using default icon for non-image file";
         QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
         m_previewImage->setPixmap(defaultIcon);
     }
