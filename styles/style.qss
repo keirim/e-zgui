@@ -1,5 +1,5 @@
 QMainWindow {
-    background-color: #2b2b2b;
+    background-color: #1e1e1e;
 }
 
 QWidget {
@@ -8,24 +8,27 @@ QWidget {
 }
 
 QLineEdit {
-    padding: 8px;
-    background-color: #3b3b3b;
-    border: 1px solid #555555;
-    border-radius: 4px;
+    padding: 12px;
+    background-color: #2d2d2d;
+    border: 1px solid #3d3d3d;
+    border-radius: 6px;
     color: #ffffff;
+    font-size: 14px;
 }
 
 QLineEdit:focus {
     border: 1px solid #007acc;
+    background-color: #333333;
 }
 
 QPushButton {
     background-color: #007acc;
     color: white;
     border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
+    padding: 12px 24px;
+    border-radius: 6px;
     font-weight: bold;
+    font-size: 14px;
 }
 
 QPushButton:hover {
@@ -37,39 +40,55 @@ QPushButton:pressed {
 }
 
 QPushButton:disabled {
-    background-color: #555555;
+    background-color: #404040;
+    color: #808080;
 }
 
 QLabel {
     color: #ffffff;
+    font-size: 14px;
 }
 
 #statusLabel {
     font-size: 16px;
     padding: 10px;
+    border-radius: 6px;
+    background-color: #2d2d2d;
 }
 
 #dropArea {
-    background-color: #3b3b3b;
-    border: 2px dashed #555555;
-    border-radius: 8px;
-    padding: 20px;
-    margin: 10px;
+    background-color: #2d2d2d;
+    border: 2px dashed #3d3d3d;
+    border-radius: 12px;
+    padding: 40px;
+}
+
+#dropArea QLabel {
+    font-size: 18px;
+    color: #cccccc;
 }
 
 #dropArea.dragOver {
     border-color: #007acc;
-    background-color: #404040;
+    background-color: #333333;
+}
+
+#selectButton {
+    font-size: 16px;
+    padding: 14px 28px;
+    margin-top: 20px;
 }
 
 QProgressBar {
-    border: 1px solid #555555;
+    border: none;
     border-radius: 4px;
     text-align: center;
-    background-color: #3b3b3b;
+    background-color: #2d2d2d;
+    height: 8px;
+    font-size: 12px;
 }
 
 QProgressBar::chunk {
     background-color: #007acc;
-    border-radius: 3px;
+    border-radius: 4px;
 }

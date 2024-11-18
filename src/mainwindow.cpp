@@ -42,17 +42,25 @@ void MainWindow::setupUi()
     
     auto* mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setSpacing(20);
-    mainLayout->setContentsMargins(20, 20, 20, 20);
+    mainLayout->setContentsMargins(30, 30, 30, 30);
+    
+    // Create header
+    auto* headerWidget = new QWidget(this);
+    auto* headerLayout = new QHBoxLayout(headerWidget);
+    headerLayout->setContentsMargins(0, 0, 0, 0);
     
     // Status label to show if API key is set
     m_statusLabel = new QLabel(this);
     m_statusLabel->setObjectName("statusLabel");
-    mainLayout->addWidget(m_statusLabel);
+    headerLayout->addWidget(m_statusLabel);
+    
+    mainLayout->addWidget(headerWidget);
     
     // Create a container for the API key input (hidden by default)
     m_apiKeyWidget = new QWidget(this);
     auto* apiKeyLayout = new QHBoxLayout(m_apiKeyWidget);
     apiKeyLayout->setSpacing(10);
+    apiKeyLayout->setContentsMargins(0, 0, 0, 0);
     
     m_apiKeyInput = new QLineEdit(m_apiKeyWidget);
     m_apiKeyInput->setPlaceholderText("Enter API Key");
@@ -60,16 +68,25 @@ void MainWindow::setupUi()
     apiKeyLayout->addWidget(m_apiKeyInput);
     
     m_saveButton = new QPushButton("Save", m_apiKeyWidget);
+    m_saveButton->setFixedWidth(100);
     apiKeyLayout->addWidget(m_saveButton);
     
     mainLayout->addWidget(m_apiKeyWidget);
     m_apiKeyWidget->hide();  // Hidden by default
     
+    // Main content area
+    auto* contentWidget = new QWidget(this);
+    contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    auto* contentLayout = new QVBoxLayout(contentWidget);
+    contentLayout->setSpacing(15);
+    contentLayout->setContentsMargins(0, 0, 0, 0);
+    
     // Drop area
     m_dropArea = new QWidget(this);
     m_dropArea->setObjectName("dropArea");
-    m_dropArea->setMinimumHeight(200);
+    m_dropArea->setMinimumHeight(300);
     auto* dropLayout = new QVBoxLayout(m_dropArea);
+    dropLayout->setSpacing(15);
     
     m_dropLabel = new QLabel("Drag and drop files here\nor", this);
     m_dropLabel->setAlignment(Qt::AlignCenter);
@@ -77,24 +94,28 @@ void MainWindow::setupUi()
     
     m_selectButton = new QPushButton("Select Files", this);
     m_selectButton->setFixedWidth(200);
-    connect(m_selectButton, &QPushButton::clicked, this, &MainWindow::handleFileSelection);
+    m_selectButton->setObjectName("selectButton");
     
     auto* buttonContainer = new QWidget(this);
     auto* buttonLayout = new QHBoxLayout(buttonContainer);
+    buttonLayout->setAlignment(Qt::AlignCenter);
     buttonLayout->addWidget(m_selectButton);
     dropLayout->addWidget(buttonContainer);
     
-    mainLayout->addWidget(m_dropArea);
+    contentLayout->addWidget(m_dropArea);
     
     // Progress bar
     m_progressBar = new QProgressBar(this);
     m_progressBar->setMinimum(0);
     m_progressBar->setMaximum(100);
     m_progressBar->hide();
-    mainLayout->addWidget(m_progressBar);
+    contentLayout->addWidget(m_progressBar);
     
-    // Connect the save button
+    mainLayout->addWidget(contentWidget);
+    
+    // Connect signals
     connect(m_saveButton, &QPushButton::clicked, this, &MainWindow::saveApiKey);
+    connect(m_selectButton, &QPushButton::clicked, this, &MainWindow::handleFileSelection);
     
     // Enable drag and drop
     setAcceptDrops(true);
@@ -189,7 +210,9 @@ void MainWindow::handleFileSelection()
         return;
     }
     
-    QString filePath = QFileDialog::getOpenFileName(this, "Select File");
+    QString filePath = QFileDialog::getOpenFileName(this, "Select File",
+                                                  QDir::homePath(),  // Start in home directory
+                                                  "All Files (*.*)");
     if (filePath.isEmpty()) return;
     
     if (!isValidFileType(filePath)) {
@@ -248,32 +271,34 @@ void MainWindow::uploadFile(const QString& filePath)
 
     qDebug() << "File opened successfully. Size:" << file->size() << "bytes";
     
-    QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
-    
-    // Create the file part
-    QHttpPart filePart;
-    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("application/octet-stream"));
-    filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
-                      QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
-                              .arg(QFileInfo(filePath).fileName())));
-    filePart.setBodyDevice(file);
-    file->setParent(multiPart);
-    multiPart->append(filePart);
-    
-    QUrl url("https://api.e-z.host/files");
-    QNetworkRequest request(url);
-    
-    // Set headers
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "multipart/form-data");
+    // Read file content
+    QByteArray fileData = file->readAll();
+    file->close();
+    file->deleteLater();
+
+    // Create the network request
+    QNetworkRequest request(QUrl("https://api.e-z.host/files"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "multipart/form-data; boundary=boundary");
     request.setRawHeader("key", m_apiKey.toUtf8());
-    
-    qDebug() << "Sending request to:" << url.toString();
+
+    // Create multipart data
+    QByteArray data;
+    data.append("--boundary\r\n");
+    data.append("Content-Disposition: form-data; name=\"file\"; filename=\"");
+    data.append(QFileInfo(filePath).fileName().toUtf8());
+    data.append("\"\r\n");
+    data.append("Content-Type: application/octet-stream\r\n");
+    data.append("\r\n");
+    data.append(fileData);
+    data.append("\r\n");
+    data.append("--boundary--\r\n");
+
+    qDebug() << "Sending request to:" << request.url().toString();
     qDebug() << "Headers:";
     qDebug() << "- Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader).toString();
     qDebug() << "- Key:" << m_apiKey.left(4) + "..." << "(truncated for security)";
     
-    m_currentUpload = m_networkManager.post(request, multiPart);
-    multiPart->setParent(m_currentUpload);
+    m_currentUpload = m_networkManager.post(request, data);
     
     m_progressBar->setValue(0);
     m_progressBar->show();
@@ -284,7 +309,6 @@ void MainWindow::uploadFile(const QString& filePath)
     connect(m_currentUpload, &QNetworkReply::finished,
             this, &MainWindow::uploadFinished);
     
-    // Add error handling
     connect(m_currentUpload, &QNetworkReply::errorOccurred,
             this, [this](QNetworkReply::NetworkError error) {
                 qDebug() << "Network error occurred:" << error;
