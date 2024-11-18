@@ -235,30 +235,45 @@ void MainWindow::updateDropAreaStyle(bool isDragOver)
 
 void MainWindow::uploadFile(const QString& filePath)
 {
+    qDebug() << "Starting upload for file:" << filePath;
+    
     QFile* file = new QFile(filePath);
     if (!file->open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, "Error", "Could not open file for upload.");
+        QString error = QString("Could not open file for upload: %1").arg(file->errorString());
+        qDebug() << "Error:" << error;
+        QMessageBox::warning(this, "Error", error);
         file->deleteLater();
         return;
     }
+
+    qDebug() << "File opened successfully. Size:" << file->size() << "bytes";
     
     QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     
+    // Create the file part
     QHttpPart filePart;
-    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("multipart/form-data"));
+    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("application/octet-stream"));
     filePart.setHeader(QNetworkRequest::ContentDispositionHeader,
                       QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
                               .arg(QFileInfo(filePath).fileName())));
     filePart.setBodyDevice(file);
-    file->setParent(multiPart); // File will be deleted with multiPart
+    file->setParent(multiPart);
     multiPart->append(filePart);
     
-    QNetworkRequest request(QUrl("https://api.e-z.host/files"));
+    QUrl url("https://api.e-z.host/files");
+    QNetworkRequest request(url);
+    
+    // Set headers
     request.setHeader(QNetworkRequest::ContentTypeHeader, "multipart/form-data");
     request.setRawHeader("key", m_apiKey.toUtf8());
     
+    qDebug() << "Sending request to:" << url.toString();
+    qDebug() << "Headers:";
+    qDebug() << "- Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader).toString();
+    qDebug() << "- Key:" << m_apiKey.left(4) + "..." << "(truncated for security)";
+    
     m_currentUpload = m_networkManager.post(request, multiPart);
-    multiPart->setParent(m_currentUpload); // multiPart will be deleted with reply
+    multiPart->setParent(m_currentUpload);
     
     m_progressBar->setValue(0);
     m_progressBar->show();
@@ -268,6 +283,13 @@ void MainWindow::uploadFile(const QString& filePath)
             this, &MainWindow::uploadProgress);
     connect(m_currentUpload, &QNetworkReply::finished,
             this, &MainWindow::uploadFinished);
+    
+    // Add error handling
+    connect(m_currentUpload, &QNetworkReply::errorOccurred,
+            this, [this](QNetworkReply::NetworkError error) {
+                qDebug() << "Network error occurred:" << error;
+                qDebug() << "Error string:" << m_currentUpload->errorString();
+            });
 }
 
 void MainWindow::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
@@ -275,6 +297,7 @@ void MainWindow::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
     if (bytesTotal > 0) {
         int progress = static_cast<int>((bytesSent * 100) / bytesTotal);
         m_progressBar->setValue(progress);
+        qDebug() << "Upload progress:" << bytesSent << "/" << bytesTotal << "bytes (" << progress << "%)";
     }
 }
 
@@ -285,10 +308,21 @@ void MainWindow::uploadFinished()
     
     if (m_currentUpload->error() == QNetworkReply::NoError) {
         QByteArray response = m_currentUpload->readAll();
+        qDebug() << "Upload completed successfully. Response:" << response;
         showUploadResult(response);
     } else {
+        QString errorString = m_currentUpload->errorString();
+        int statusCode = m_currentUpload->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        qDebug() << "Upload failed:";
+        qDebug() << "- Status code:" << statusCode;
+        qDebug() << "- Error:" << errorString;
+        qDebug() << "- Raw response:" << m_currentUpload->readAll();
+        
         QMessageBox::warning(this, "Upload Error",
-                           "Failed to upload file: " + m_currentUpload->errorString());
+                           QString("Failed to upload file (Status: %1)\nError: %2")
+                           .arg(statusCode)
+                           .arg(errorString));
     }
     
     m_currentUpload->deleteLater();
@@ -297,21 +331,41 @@ void MainWindow::uploadFinished()
 
 void MainWindow::showUploadResult(const QByteArray& response)
 {
-    QJsonDocument doc = QJsonDocument::fromJson(response);
+    qDebug() << "Parsing upload response";
+    
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(response, &parseError);
+    
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "JSON parse error:" << parseError.errorString();
+        QMessageBox::warning(this, "Error", "Failed to parse server response");
+        return;
+    }
+    
     QJsonObject obj = doc.object();
     
     if (obj["success"].toBool()) {
+        QString imageUrl = obj["imageUrl"].toString();
+        QString rawUrl = obj["rawUrl"].toString();
+        QString deletionUrl = obj["deletionUrl"].toString();
+        
+        qDebug() << "Upload successful:";
+        qDebug() << "- Image URL:" << imageUrl;
+        qDebug() << "- Raw URL:" << rawUrl;
+        qDebug() << "- Deletion URL:" << deletionUrl;
+        
         QString message = QString("File uploaded successfully!\n\n"
                                 "Image URL: %1\n"
                                 "Raw URL: %2\n"
                                 "Deletion URL: %3")
-                             .arg(obj["imageUrl"].toString())
-                             .arg(obj["rawUrl"].toString())
-                             .arg(obj["deletionUrl"].toString());
+                             .arg(imageUrl)
+                             .arg(rawUrl)
+                             .arg(deletionUrl);
         
         QMessageBox::information(this, "Upload Success", message);
     } else {
-        QMessageBox::warning(this, "Upload Error",
-                           obj["message"].toString("Unknown error occurred"));
+        QString errorMessage = obj["message"].toString("Unknown error occurred");
+        qDebug() << "Upload failed with error:" << errorMessage;
+        QMessageBox::warning(this, "Upload Error", errorMessage);
     }
 }
