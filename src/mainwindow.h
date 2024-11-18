@@ -33,16 +33,12 @@ protected:
 private slots:
     void saveApiKey();
     void logout();
-    void checkAndPromptApiKey();
     void handleFileSelection();
-    void uploadFile(const QString& filePath);
     void uploadProgress(qint64 bytesSent, qint64 bytesTotal);
     void uploadFinished();
-    void validateApiKeyResponse(QNetworkReply* reply);
     void copyUrl();
-    void openDeleteUrl();
     void openImageUrl();
-    void downloadPreviewImage();
+    void openDeleteUrl();
     void previewImageDownloaded(QNetworkReply* reply);
 
 private:
@@ -62,8 +58,9 @@ private:
     void setupPreviewPanel();
     void updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl);
     void clearPreviewPanel();
-    bool isImageFile(const QString& filePath) const;
+    void downloadPreviewImage();
     QString getMimeType(const QString& filePath);
+    bool isImageFile(const QString& filePath) const;
 
     static bool isValidFileType(const QString& filePath);
     static bool isFileSizeValid(const QString& filePath);

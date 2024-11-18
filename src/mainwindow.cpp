@@ -178,54 +178,148 @@ void MainWindow::setupUi()
 void MainWindow::setupPreviewPanel()
 {
     m_previewPanel = new QWidget(this);
-    m_previewPanel->setObjectName("previewPanel");
-    m_previewPanel->setMinimumWidth(300);
-    m_previewPanel->hide();
-    
     auto* previewLayout = new QVBoxLayout(m_previewPanel);
-    previewLayout->setSpacing(15);
+    previewLayout->setSpacing(10);
     
     // Preview image
     m_previewImage = new QLabel(this);
-    m_previewImage->setObjectName("previewImage");
-    m_previewImage->setMinimumSize(280, 280);
-    m_previewImage->setMaximumSize(280, 280);
-    m_previewImage->setScaledContents(true);
+    m_previewImage->setMinimumSize(200, 200);
+    m_previewImage->setMaximumSize(400, 400);
     m_previewImage->setAlignment(Qt::AlignCenter);
-    previewLayout->addWidget(m_previewImage, 0, Qt::AlignCenter);
+    m_previewImage->setStyleSheet("QLabel { background-color: #2b2b2b; border-radius: 5px; }");
+    previewLayout->addWidget(m_previewImage);
     
     // File info
+    auto* infoWidget = new QWidget(this);
+    auto* infoLayout = new QHBoxLayout(infoWidget);
+    infoLayout->setSpacing(10);
+    
     m_fileNameLabel = new QLabel(this);
-    m_fileNameLabel->setObjectName("fileNameLabel");
-    m_fileNameLabel->setWordWrap(true);
-    previewLayout->addWidget(m_fileNameLabel);
+    m_fileNameLabel->setStyleSheet("QLabel { color: #e0e0e0; }");
+    infoLayout->addWidget(m_fileNameLabel);
     
     m_fileSizeLabel = new QLabel(this);
-    m_fileSizeLabel->setObjectName("fileSizeLabel");
-    previewLayout->addWidget(m_fileSizeLabel);
+    m_fileSizeLabel->setStyleSheet("QLabel { color: #808080; }");
+    infoLayout->addWidget(m_fileSizeLabel);
     
-    // Buttons
-    auto* buttonLayout = new QVBoxLayout();
+    previewLayout->addWidget(infoWidget);
+    
+    // Action buttons
+    auto* buttonWidget = new QWidget(this);
+    auto* buttonLayout = new QHBoxLayout(buttonWidget);
     buttonLayout->setSpacing(10);
     
     m_copyUrlButton = new QPushButton("Copy URL", this);
-    m_copyUrlButton->setObjectName("copyUrlButton");
+    m_copyUrlButton->setIcon(QIcon::fromTheme("edit-copy"));
+    m_copyUrlButton->setCursor(Qt::PointingHandCursor);
     buttonLayout->addWidget(m_copyUrlButton);
     
-    m_openImageButton = new QPushButton("Open in Browser", this);
-    m_openImageButton->setObjectName("openImageButton");
+    m_openImageButton = new QPushButton("Open", this);
+    m_openImageButton->setIcon(QIcon::fromTheme("document-open"));
+    m_openImageButton->setCursor(Qt::PointingHandCursor);
     buttonLayout->addWidget(m_openImageButton);
     
-    m_deleteButton = new QPushButton("Delete File", this);
-    m_deleteButton->setObjectName("deleteButton");
+    m_deleteButton = new QPushButton("Delete", this);
+    m_deleteButton->setIcon(QIcon::fromTheme("edit-delete"));
+    m_deleteButton->setCursor(Qt::PointingHandCursor);
     buttonLayout->addWidget(m_deleteButton);
     
-    previewLayout->addLayout(buttonLayout);
+    previewLayout->addWidget(buttonWidget);
     
-    // Connect signals
+    // Connect button signals
     connect(m_copyUrlButton, &QPushButton::clicked, this, &MainWindow::copyUrl);
     connect(m_openImageButton, &QPushButton::clicked, this, &MainWindow::openImageUrl);
     connect(m_deleteButton, &QPushButton::clicked, this, &MainWindow::openDeleteUrl);
+    
+    // Initially hide the panel
+    m_previewPanel->hide();
+}
+
+void MainWindow::copyUrl()
+{
+    if (!m_currentImageUrl.isEmpty()) {
+        QClipboard* clipboard = QGuiApplication::clipboard();
+        clipboard->setText(m_currentImageUrl);
+        statusBar()->showMessage("URL copied to clipboard!", 3000);
+    }
+}
+
+void MainWindow::openImageUrl()
+{
+    if (!m_currentImageUrl.isEmpty()) {
+        QDesktopServices::openUrl(QUrl(m_currentImageUrl));
+    }
+}
+
+void MainWindow::openDeleteUrl()
+{
+    if (!m_currentDeleteUrl.isEmpty()) {
+        QDesktopServices::openUrl(QUrl(m_currentDeleteUrl));
+    }
+}
+
+void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
+{
+    // Store URLs
+    m_currentImageUrl = imageUrl;
+    m_currentRawUrl = rawUrl;
+    m_currentDeleteUrl = deleteUrl;
+
+    // Update file info from the current upload
+    if (m_currentUpload) {
+        QString filePath = m_currentUpload->property("filePath").toString();
+        QFileInfo fileInfo(filePath);
+        m_fileNameLabel->setText(fileInfo.fileName());
+        QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
+        m_fileSizeLabel->setText(size);
+    }
+
+    // Show preview panel
+    m_previewPanel->show();
+
+    // Update buttons
+    m_copyUrlButton->setEnabled(true);
+    m_openImageButton->setEnabled(true);
+    m_deleteButton->setEnabled(true);
+
+    // If it's an image URL, download and show preview
+    if (imageUrl.contains(".png") || imageUrl.contains(".jpg") || 
+        imageUrl.contains(".jpeg") || imageUrl.contains(".gif") ||
+        imageUrl.contains(".webp")) {
+        downloadPreviewImage();
+    } else {
+        // Use default icon for non-image files
+        QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
+        m_previewImage->setPixmap(defaultIcon);
+    }
+}
+
+void MainWindow::downloadPreviewImage()
+{
+    if (m_currentImageUrl.isEmpty()) return;
+    
+    QNetworkRequest request(QUrl(m_currentImageUrl));
+    QNetworkReply* reply = m_networkManager.get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            QPixmap pixmap;
+            if (pixmap.loadFromData(data)) {
+                // Scale pixmap to fit the label while maintaining aspect ratio
+                pixmap = pixmap.scaled(m_previewImage->size(), 
+                                     Qt::KeepAspectRatio, 
+                                     Qt::SmoothTransformation);
+                m_previewImage->setPixmap(pixmap);
+            }
+        } else {
+            // Show error icon if preview fails
+            QPixmap errorIcon = QIcon::fromTheme("dialog-error").pixmap(64, 64);
+            m_previewImage->setPixmap(errorIcon);
+        }
+    });
 }
 
 QString MainWindow::getMimeType(const QString& filePath)
@@ -594,33 +688,6 @@ void MainWindow::showUploadResult(const QByteArray& response)
     statusBar()->showMessage("File uploaded successfully!", 3000);
 }
 
-void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
-{
-    // Store URLs
-    m_currentImageUrl = imageUrl;
-    m_currentRawUrl = rawUrl;
-    m_currentDeleteUrl = deleteUrl;
-
-    // Show preview panel
-    m_previewPanel->show();
-
-    // Update buttons
-    m_copyUrlButton->setEnabled(true);
-    m_openImageButton->setEnabled(true);
-    m_deleteButton->setEnabled(true);
-
-    // If it's an image URL, download and show preview
-    if (imageUrl.contains(".png") || imageUrl.contains(".jpg") || 
-        imageUrl.contains(".jpeg") || imageUrl.contains(".gif") ||
-        imageUrl.contains(".webp")) {
-        downloadPreviewImage();
-    } else {
-        // Use default icon for non-image files
-        QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
-        m_previewImage->setPixmap(defaultIcon);
-    }
-}
-
 void MainWindow::clearPreviewPanel()
 {
     m_currentImageUrl.clear();
@@ -630,66 +697,6 @@ void MainWindow::clearPreviewPanel()
     m_fileNameLabel->clear();
     m_fileSizeLabel->clear();
     m_previewPanel->hide();
-}
-
-void MainWindow::copyUrl()
-{
-    QClipboard* clipboard = QGuiApplication::clipboard();
-    clipboard->setText(m_currentImageUrl);
-    
-    QMessageBox::information(this, "Success", "URL copied to clipboard!");
-}
-
-void MainWindow::openImageUrl()
-{
-    QDesktopServices::openUrl(QUrl(m_currentImageUrl));
-}
-
-void MainWindow::openDeleteUrl()
-{
-    QMessageBox::StandardButton reply = QMessageBox::question(
-        this, "Confirm Delete",
-        "Are you sure you want to delete this file? This action cannot be undone.",
-        QMessageBox::Yes | QMessageBox::No
-    );
-    
-    if (reply == QMessageBox::Yes) {
-        QDesktopServices::openUrl(QUrl(m_currentDeleteUrl));
-        clearPreviewPanel();
-    }
-}
-
-void MainWindow::downloadPreviewImage()
-{
-    QNetworkRequest request{QUrl{m_currentImageUrl}};  
-    QNetworkReply* reply = m_networkManager.get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        previewImageDownloaded(reply);
-    });
-}
-
-void MainWindow::previewImageDownloaded(QNetworkReply* reply)
-{
-    reply->deleteLater();
-    
-    if (reply->error() == QNetworkReply::NoError) {
-        QByteArray imageData = reply->readAll();
-        QPixmap pixmap;
-        pixmap.loadFromData(imageData);
-        
-        if (!pixmap.isNull()) {
-            m_previewImage->setPixmap(pixmap.scaled(280, 280, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        }
-    }
-}
-
-bool MainWindow::isImageFile(const QString& filePath) const
-{
-    QString extension = QFileInfo(filePath).suffix().toLower();
-    return extension == "jpg" || extension == "jpeg" || 
-           extension == "png" || extension == "gif" || 
-           extension == "bmp" || extension == "webp";
 }
 
 void MainWindow::loadHistory()
