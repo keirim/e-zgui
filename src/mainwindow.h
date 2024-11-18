@@ -10,6 +10,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QAction>
+#include <QStatusBar>
 
 class QLineEdit;
 class QPushButton;
