@@ -571,7 +571,7 @@ void MainWindow::openDeleteUrl()
 
 void MainWindow::downloadPreviewImage()
 {
-    QNetworkRequest request(QUrl(m_currentImageUrl));
+    QNetworkRequest request{QUrl{m_currentImageUrl}};  // Fixed initialization using braces
     QNetworkReply* reply = m_networkManager.get(request);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
