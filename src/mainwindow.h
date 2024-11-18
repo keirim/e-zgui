@@ -4,6 +4,9 @@
 #include <QSettings>
 #include <QNetworkAccessManager>
 #include <QMimeData>
+#include <QUrlQuery>
+#include <QMessageBox>
+#include <QNetworkReply>
 
 class QLineEdit;
 class QPushButton;

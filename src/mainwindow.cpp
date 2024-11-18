@@ -17,6 +17,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStyle>
+#include <QUrlQuery>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
