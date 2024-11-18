@@ -12,7 +12,7 @@ class QLineEdit;
 class QPushButton;
 class QLabel;
 class QProgressBar;
-class QNetworkReply;
+class QWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -35,6 +35,11 @@ private slots:
     void uploadProgress(qint64 bytesSent, qint64 bytesTotal);
     void uploadFinished();
     void validateApiKeyResponse(QNetworkReply* reply);
+    void copyUrl();
+    void openDeleteUrl();
+    void openImageUrl();
+    void downloadPreviewImage();
+    void previewImageDownloaded(QNetworkReply* reply);
 
 private:
     void setupUi();
@@ -45,6 +50,10 @@ private:
     void showUploadResult(const QByteArray& response);
     void validateApiKey(const QString& key);
     void updateUiForValidation(bool isValid, const QString& message = QString());
+    void setupPreviewPanel();
+    void updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl);
+    void clearPreviewPanel();
+    bool isImageFile(const QString& filePath) const;
 
     static bool isValidFileType(const QString& filePath);
     static bool isFileSizeValid(const QString& filePath);
@@ -53,6 +62,11 @@ private:
     QString m_apiKey;
     QNetworkAccessManager m_networkManager;
     QNetworkReply* m_currentUpload = nullptr;
+
+    // Upload URLs
+    QString m_currentImageUrl;
+    QString m_currentRawUrl;
+    QString m_currentDeleteUrl;
 
     // UI Elements
     QLineEdit* m_apiKeyInput = nullptr;
@@ -64,4 +78,13 @@ private:
     QLabel* m_dropLabel = nullptr;
     QPushButton* m_selectButton = nullptr;
     QProgressBar* m_progressBar = nullptr;
+
+    // Preview Panel Elements
+    QWidget* m_previewPanel = nullptr;
+    QLabel* m_previewImage = nullptr;
+    QLabel* m_fileNameLabel = nullptr;
+    QLabel* m_fileSizeLabel = nullptr;
+    QPushButton* m_copyUrlButton = nullptr;
+    QPushButton* m_openImageButton = nullptr;
+    QPushButton* m_deleteButton = nullptr;
 };

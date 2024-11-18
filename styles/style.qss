@@ -109,3 +109,59 @@ QProgressBar::chunk {
     background-color: #007acc;
     border-radius: 4px;
 }
+
+#previewPanel {
+    background-color: #2d2d2d;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+#previewImage {
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+#fileNameLabel {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+#fileSizeLabel {
+    color: #888888;
+    font-size: 12px;
+}
+
+#copyUrlButton, #openImageButton, #deleteButton {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    border: none;
+    color: white;
+}
+
+#copyUrlButton {
+    background-color: #4a90e2;
+}
+
+#copyUrlButton:hover {
+    background-color: #357abd;
+}
+
+#openImageButton {
+    background-color: #2ecc71;
+}
+
+#openImageButton:hover {
+    background-color: #27ae60;
+}
+
+#deleteButton {
+    background-color: #e74c3c;
+}
+
+#deleteButton:hover {
+    background-color: #c0392b;
+}

@@ -18,6 +18,8 @@
 #include <QJsonObject>
 #include <QStyle>
 #include <QUrlQuery>
+#include <QDesktopServices>
+#include <QClipboard>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -82,40 +84,42 @@ void MainWindow::setupUi()
     
     // Main content area
     auto* contentWidget = new QWidget(this);
-    contentWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    auto* contentLayout = new QVBoxLayout(contentWidget);
-    contentLayout->setSpacing(15);
-    contentLayout->setContentsMargins(0, 0, 0, 0);
+    auto* contentLayout = new QHBoxLayout(contentWidget);
+    contentLayout->setSpacing(20);
     
-    // Drop area
+    // Upload area (left side)
+    auto* uploadWidget = new QWidget(this);
+    auto* uploadLayout = new QVBoxLayout(uploadWidget);
+    uploadLayout->setSpacing(10);
+    
     m_dropArea = new QWidget(this);
     m_dropArea->setObjectName("dropArea");
-    m_dropArea->setMinimumHeight(300);
-    auto* dropLayout = new QVBoxLayout(m_dropArea);
-    dropLayout->setSpacing(15);
+    m_dropArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_dropArea->setMinimumSize(300, 300);
+    
+    auto* dropAreaLayout = new QVBoxLayout(m_dropArea);
+    dropAreaLayout->setAlignment(Qt::AlignCenter);
     
     m_dropLabel = new QLabel("Drag and drop files here\nor", this);
     m_dropLabel->setAlignment(Qt::AlignCenter);
-    dropLayout->addWidget(m_dropLabel);
+    dropAreaLayout->addWidget(m_dropLabel);
     
     m_selectButton = new QPushButton("Select Files", this);
-    m_selectButton->setFixedWidth(200);
     m_selectButton->setObjectName("selectButton");
+    dropAreaLayout->addWidget(m_selectButton, 0, Qt::AlignCenter);
     
-    auto* buttonContainer = new QWidget(this);
-    auto* buttonLayout = new QHBoxLayout(buttonContainer);
-    buttonLayout->setAlignment(Qt::AlignCenter);
-    buttonLayout->addWidget(m_selectButton);
-    dropLayout->addWidget(buttonContainer);
+    uploadLayout->addWidget(m_dropArea);
     
-    contentLayout->addWidget(m_dropArea);
-    
-    // Progress bar
     m_progressBar = new QProgressBar(this);
-    m_progressBar->setMinimum(0);
-    m_progressBar->setMaximum(100);
+    m_progressBar->setObjectName("progressBar");
     m_progressBar->hide();
-    contentLayout->addWidget(m_progressBar);
+    uploadLayout->addWidget(m_progressBar);
+    
+    contentLayout->addWidget(uploadWidget);
+    
+    // Preview panel (right side)
+    setupPreviewPanel();
+    contentLayout->addWidget(m_previewPanel);
     
     mainLayout->addWidget(contentWidget);
     
@@ -126,6 +130,59 @@ void MainWindow::setupUi()
     
     // Enable drag and drop
     setAcceptDrops(true);
+}
+
+void MainWindow::setupPreviewPanel()
+{
+    m_previewPanel = new QWidget(this);
+    m_previewPanel->setObjectName("previewPanel");
+    m_previewPanel->setMinimumWidth(300);
+    m_previewPanel->hide();
+    
+    auto* previewLayout = new QVBoxLayout(m_previewPanel);
+    previewLayout->setSpacing(15);
+    
+    // Preview image
+    m_previewImage = new QLabel(this);
+    m_previewImage->setObjectName("previewImage");
+    m_previewImage->setMinimumSize(280, 280);
+    m_previewImage->setMaximumSize(280, 280);
+    m_previewImage->setScaledContents(true);
+    m_previewImage->setAlignment(Qt::AlignCenter);
+    previewLayout->addWidget(m_previewImage, 0, Qt::AlignCenter);
+    
+    // File info
+    m_fileNameLabel = new QLabel(this);
+    m_fileNameLabel->setObjectName("fileNameLabel");
+    m_fileNameLabel->setWordWrap(true);
+    previewLayout->addWidget(m_fileNameLabel);
+    
+    m_fileSizeLabel = new QLabel(this);
+    m_fileSizeLabel->setObjectName("fileSizeLabel");
+    previewLayout->addWidget(m_fileSizeLabel);
+    
+    // Buttons
+    auto* buttonLayout = new QVBoxLayout();
+    buttonLayout->setSpacing(10);
+    
+    m_copyUrlButton = new QPushButton("Copy URL", this);
+    m_copyUrlButton->setObjectName("copyUrlButton");
+    buttonLayout->addWidget(m_copyUrlButton);
+    
+    m_openImageButton = new QPushButton("Open in Browser", this);
+    m_openImageButton->setObjectName("openImageButton");
+    buttonLayout->addWidget(m_openImageButton);
+    
+    m_deleteButton = new QPushButton("Delete File", this);
+    m_deleteButton->setObjectName("deleteButton");
+    buttonLayout->addWidget(m_deleteButton);
+    
+    previewLayout->addLayout(buttonLayout);
+    
+    // Connect signals
+    connect(m_copyUrlButton, &QPushButton::clicked, this, &MainWindow::copyUrl);
+    connect(m_openImageButton, &QPushButton::clicked, this, &MainWindow::openImageUrl);
+    connect(m_deleteButton, &QPushButton::clicked, this, &MainWindow::openDeleteUrl);
 }
 
 void MainWindow::validateApiKey(const QString& key)
@@ -432,41 +489,115 @@ void MainWindow::uploadFinished()
 
 void MainWindow::showUploadResult(const QByteArray& response)
 {
-    qDebug() << "Parsing upload response";
-    
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(response, &parseError);
-    
-    if (parseError.error != QJsonParseError::NoError) {
-        qDebug() << "JSON parse error:" << parseError.errorString();
-        QMessageBox::warning(this, "Error", "Failed to parse server response");
-        return;
-    }
-    
+    QJsonDocument doc = QJsonDocument::fromJson(response);
     QJsonObject obj = doc.object();
     
-    if (obj["success"].toBool()) {
-        QString imageUrl = obj["imageUrl"].toString();
-        QString rawUrl = obj["rawUrl"].toString();
-        QString deletionUrl = obj["deletionUrl"].toString();
+    if (obj.contains("success") && obj["success"].toBool()) {
+        QJsonObject data = obj["data"].toObject();
+        QString imageUrl = data["imageUrl"].toString();
+        QString rawUrl = data["rawUrl"].toString();
+        QString deleteUrl = data["deletionUrl"].toString();
         
-        qDebug() << "Upload successful:";
-        qDebug() << "- Image URL:" << imageUrl;
-        qDebug() << "- Raw URL:" << rawUrl;
-        qDebug() << "- Deletion URL:" << deletionUrl;
-        
-        QString message = QString("File uploaded successfully!\n\n"
-                                "Image URL: %1\n"
-                                "Raw URL: %2\n"
-                                "Deletion URL: %3")
-                             .arg(imageUrl)
-                             .arg(rawUrl)
-                             .arg(deletionUrl);
-        
-        QMessageBox::information(this, "Upload Success", message);
+        updatePreviewPanel(imageUrl, rawUrl, deleteUrl);
     } else {
-        QString errorMessage = obj["message"].toString("Unknown error occurred");
-        qDebug() << "Upload failed with error:" << errorMessage;
-        QMessageBox::warning(this, "Upload Error", errorMessage);
+        QString error = obj["message"].toString("Upload failed");
+        QMessageBox::warning(this, "Error", error);
+        clearPreviewPanel();
     }
+    
+    m_progressBar->hide();
+    m_dropArea->setEnabled(true);
+}
+
+void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
+{
+    m_currentImageUrl = imageUrl;
+    m_currentRawUrl = rawUrl;
+    m_currentDeleteUrl = deleteUrl;
+    
+    QFileInfo fileInfo(m_currentUpload->property("filePath").toString());
+    m_fileNameLabel->setText(fileInfo.fileName());
+    
+    QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
+    m_fileSizeLabel->setText(size);
+    
+    if (isImageFile(fileInfo.filePath())) {
+        downloadPreviewImage();
+    } else {
+        QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
+        m_previewImage->setPixmap(defaultIcon);
+    }
+    
+    m_previewPanel->show();
+}
+
+void MainWindow::clearPreviewPanel()
+{
+    m_currentImageUrl.clear();
+    m_currentRawUrl.clear();
+    m_currentDeleteUrl.clear();
+    m_previewImage->clear();
+    m_fileNameLabel->clear();
+    m_fileSizeLabel->clear();
+    m_previewPanel->hide();
+}
+
+void MainWindow::copyUrl()
+{
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    clipboard->setText(m_currentImageUrl);
+    
+    QMessageBox::information(this, "Success", "URL copied to clipboard!");
+}
+
+void MainWindow::openImageUrl()
+{
+    QDesktopServices::openUrl(QUrl(m_currentImageUrl));
+}
+
+void MainWindow::openDeleteUrl()
+{
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this, "Confirm Delete",
+        "Are you sure you want to delete this file? This action cannot be undone.",
+        QMessageBox::Yes | QMessageBox::No
+    );
+    
+    if (reply == QMessageBox::Yes) {
+        QDesktopServices::openUrl(QUrl(m_currentDeleteUrl));
+        clearPreviewPanel();
+    }
+}
+
+void MainWindow::downloadPreviewImage()
+{
+    QNetworkRequest request(QUrl(m_currentImageUrl));
+    QNetworkReply* reply = m_networkManager.get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        previewImageDownloaded(reply);
+    });
+}
+
+void MainWindow::previewImageDownloaded(QNetworkReply* reply)
+{
+    reply->deleteLater();
+    
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray imageData = reply->readAll();
+        QPixmap pixmap;
+        pixmap.loadFromData(imageData);
+        
+        if (!pixmap.isNull()) {
+            m_previewImage->setPixmap(pixmap.scaled(280, 280, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        }
+    }
+}
+
+bool MainWindow::isImageFile(const QString& filePath) const
+{
+    QString extension = QFileInfo(filePath).suffix().toLower();
+    return extension == "jpg" || extension == "jpeg" || 
+           extension == "png" || extension == "gif" || 
+           extension == "bmp" || extension == "webp";
 }
