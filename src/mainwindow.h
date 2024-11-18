@@ -54,6 +54,7 @@ private:
     void updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl);
     void clearPreviewPanel();
     bool isImageFile(const QString& filePath) const;
+    QString getMimeType(const QString& filePath);
 
     static bool isValidFileType(const QString& filePath);
     static bool isFileSizeValid(const QString& filePath);

@@ -26,15 +26,23 @@ MainWindow::MainWindow(QWidget *parent)
     , m_settings("E-Z Uploader", "Settings")
 {
     setWindowTitle("E-Z Uploader");
-    resize(800, 600);
+    setMinimumSize(800, 600);
     
-    // Load and apply stylesheet
+    // Load stylesheet
     QFile styleFile(":/styles/style.qss");
     styleFile.open(QFile::ReadOnly);
     setStyleSheet(styleFile.readAll());
     
     setupUi();
-    loadApiKey();
+    
+    // Initialize API key state
+    m_apiKey = m_settings.value("api_key").toString();
+    if (!m_apiKey.isEmpty()) {
+        validateApiKey(m_apiKey);
+    } else {
+        updateUiForValidation(false);
+        m_dropArea->setEnabled(false);
+    }
 }
 
 void MainWindow::setupUi()
@@ -185,6 +193,35 @@ void MainWindow::setupPreviewPanel()
     connect(m_deleteButton, &QPushButton::clicked, this, &MainWindow::openDeleteUrl);
 }
 
+QString MainWindow::getMimeType(const QString& filePath)
+{
+    QString extension = QFileInfo(filePath).suffix().toLower();
+    
+    // Image types
+    if (extension == "jpg" || extension == "jpeg") return "image/jpeg";
+    if (extension == "png") return "image/png";
+    if (extension == "gif") return "image/gif";
+    if (extension == "webp") return "image/webp";
+    if (extension == "bmp") return "image/bmp";
+    
+    // Video types
+    if (extension == "mp4") return "video/mp4";
+    if (extension == "webm") return "video/webm";
+    if (extension == "avi") return "video/x-msvideo";
+    
+    // Audio types
+    if (extension == "mp3") return "audio/mpeg";
+    if (extension == "wav") return "audio/wav";
+    if (extension == "ogg") return "audio/ogg";
+    
+    // Document types
+    if (extension == "pdf") return "application/pdf";
+    if (extension == "txt") return "text/plain";
+    
+    // Default
+    return "application/octet-stream";
+}
+
 void MainWindow::validateApiKey(const QString& key)
 {
     QUrl url(QString("https://api.e-z.gg/paste/config"));
@@ -207,18 +244,25 @@ void MainWindow::validateApiKeyResponse(QNetworkReply* reply)
     if (reply->error() == QNetworkReply::NoError) {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (statusCode == 200) {
-            m_settings.setValue("api_key", m_apiKeyInput->text().trimmed());
-            m_apiKey = m_apiKeyInput->text().trimmed();
-            m_apiKeyInput->clear();
+            // Only update the stored key if we're validating a new key
+            if (!m_apiKeyInput->text().isEmpty()) {
+                m_apiKey = m_apiKeyInput->text().trimmed();
+                m_settings.setValue("api_key", m_apiKey);
+                m_apiKeyInput->clear();
+            }
             updateUiForValidation(true, "API Key validated successfully!");
-            m_dropArea->setEnabled(true);  // Enable drop area when key is valid
+            m_dropArea->setEnabled(true);
         } else {
+            m_apiKey.clear();
+            m_settings.remove("api_key");
             updateUiForValidation(false, "Invalid API Key");
-            m_dropArea->setEnabled(false);  // Disable drop area when key is invalid
+            m_dropArea->setEnabled(false);
         }
     } else {
+        m_apiKey.clear();
+        m_settings.remove("api_key");
         updateUiForValidation(false, "Failed to validate API Key: " + reply->errorString());
-        m_dropArea->setEnabled(false);  // Disable drop area on validation error
+        m_dropArea->setEnabled(false);
     }
 }
 
@@ -418,9 +462,12 @@ void MainWindow::uploadFile(const QString& filePath)
     
     QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     
-    // Add file part
+    // Add file part with proper MIME type
     QHttpPart filePart;
-    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("application/octet-stream"));
+    QString mimeType = getMimeType(filePath);
+    filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(mimeType));
+    qDebug() << "Using MIME type:" << mimeType;
+    
     filePart.setHeader(QNetworkRequest::ContentDispositionHeader, 
                       QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
                               .arg(QFileInfo(filePath).fileName())));
@@ -432,7 +479,7 @@ void MainWindow::uploadFile(const QString& filePath)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                      QString("multipart/form-data; boundary=%1").arg(multiPart->boundary().data()));
-    request.setRawHeader("key", m_apiKey.toUtf8());  // Changed "Key" to "key"
+    request.setRawHeader("key", m_apiKey.toUtf8());
     
     qDebug() << "Sending request to:" << url.toString();
     qDebug() << "Headers:";
@@ -442,7 +489,7 @@ void MainWindow::uploadFile(const QString& filePath)
     m_currentUpload = m_networkManager.post(request, multiPart);
     m_currentUpload->setProperty("filePath", filePath);
     multiPart->setParent(m_currentUpload);
-    file->setParent(m_currentUpload);  // Changed file ownership
+    file->setParent(m_currentUpload);
     
     connect(m_currentUpload, &QNetworkReply::uploadProgress,
             this, &MainWindow::uploadProgress);
@@ -593,7 +640,7 @@ void MainWindow::openDeleteUrl()
 
 void MainWindow::downloadPreviewImage()
 {
-    QNetworkRequest request{QUrl{m_currentImageUrl}};  // Fixed initialization using braces
+    QNetworkRequest request{QUrl{m_currentImageUrl}};  
     QNetworkReply* reply = m_networkManager.get(request);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
