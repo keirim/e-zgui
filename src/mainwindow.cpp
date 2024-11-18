@@ -548,7 +548,7 @@ void MainWindow::uploadFinished()
         if (m_autoCopyAction && m_autoCopyAction->isChecked()) {
             QClipboard* clipboard = QGuiApplication::clipboard();
             clipboard->setText(m_currentImageUrl);
-            m_statusBar->showMessage("URL copied to clipboard!", 3000);
+            statusBar()->showMessage("URL copied to clipboard!", 3000);
         }
     } else {
         QString errorMsg = reply->errorString();
@@ -590,7 +590,7 @@ void MainWindow::showUploadResult(const QByteArray& response)
     QString fileName = QFileInfo(m_currentUpload->property("filePath").toString()).fileName();
     addToHistory(fileName, imageUrl, rawUrl, deleteUrl);
     
-    m_statusBar->showMessage("File uploaded successfully!", 3000);
+    statusBar()->showMessage("File uploaded successfully!", 3000);
 }
 
 void MainWindow::clearPreviewPanel()
