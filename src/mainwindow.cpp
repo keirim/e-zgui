@@ -594,6 +594,33 @@ void MainWindow::showUploadResult(const QByteArray& response)
     statusBar()->showMessage("File uploaded successfully!", 3000);
 }
 
+void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
+{
+    // Store URLs
+    m_currentImageUrl = imageUrl;
+    m_currentRawUrl = rawUrl;
+    m_currentDeleteUrl = deleteUrl;
+
+    // Show preview panel
+    m_previewPanel->show();
+
+    // Update buttons
+    m_copyUrlButton->setEnabled(true);
+    m_openImageButton->setEnabled(true);
+    m_deleteButton->setEnabled(true);
+
+    // If it's an image URL, download and show preview
+    if (imageUrl.contains(".png") || imageUrl.contains(".jpg") || 
+        imageUrl.contains(".jpeg") || imageUrl.contains(".gif") ||
+        imageUrl.contains(".webp")) {
+        downloadPreviewImage();
+    } else {
+        // Use default icon for non-image files
+        QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
+        m_previewImage->setPixmap(defaultIcon);
+    }
+}
+
 void MainWindow::clearPreviewPanel()
 {
     m_currentImageUrl.clear();
