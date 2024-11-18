@@ -9,6 +9,7 @@
 #include <QMimeDatabase>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QMimeData>
 #include <QProgressBar>
 #include <QNetworkReply>
 #include <QHttpMultiPart>

@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QSettings>
 #include <QNetworkAccessManager>
+#include <QMimeData>
 
 class QLineEdit;
 class QPushButton;
