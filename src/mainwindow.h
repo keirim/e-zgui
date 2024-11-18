@@ -7,6 +7,9 @@
 #include <QUrlQuery>
 #include <QMessageBox>
 #include <QNetworkReply>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QAction>
 
 class QLineEdit;
 class QPushButton;
@@ -44,6 +47,11 @@ private slots:
 private:
     void setupUi();
     void createApiKeyPrompt();
+    void loadHistory();
+    void addToHistory(const QString& fileName, const QString& imageUrl, 
+                     const QString& rawUrl, const QString& deleteUrl);
+    void clearHistory();
+    void onHistoryItemDoubleClicked(QListWidgetItem* item);
     bool hasValidApiKey() const;
     void loadApiKey();
     void updateDropAreaStyle(bool isDragOver = false);
@@ -88,4 +96,9 @@ private:
     QPushButton* m_copyUrlButton = nullptr;
     QPushButton* m_openImageButton = nullptr;
     QPushButton* m_deleteButton = nullptr;
+
+    // History and Settings
+    QListWidget* m_historyList;
+    QAction* m_clearHistoryAction;
+    QAction* m_autoCopyAction;
 };

@@ -20,6 +20,10 @@
 #include <QUrlQuery>
 #include <QDesktopServices>
 #include <QClipboard>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QListWidget>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -53,6 +57,25 @@ void MainWindow::setupUi()
     auto* mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setSpacing(20);
     mainLayout->setContentsMargins(30, 30, 30, 30);
+    
+    // Create menu bar
+    auto* menuBar = new QMenuBar(this);
+    auto* fileMenu = menuBar->addMenu("File");
+    auto* settingsMenu = menuBar->addMenu("Settings");
+    
+    // Add actions to file menu
+    m_clearHistoryAction = fileMenu->addAction("Clear Upload History");
+    connect(m_clearHistoryAction, &QAction::triggered, this, &MainWindow::clearHistory);
+    
+    // Add actions to settings menu
+    m_autoCopyAction = settingsMenu->addAction("Auto-Copy URL on Upload");
+    m_autoCopyAction->setCheckable(true);
+    m_autoCopyAction->setChecked(m_settings.value("auto_copy", true).toBool());
+    connect(m_autoCopyAction, &QAction::triggered, [this](bool checked) {
+        m_settings.setValue("auto_copy", checked);
+    });
+    
+    setMenuBar(menuBar);
     
     // Create header
     auto* headerWidget = new QWidget(this);
@@ -130,6 +153,17 @@ void MainWindow::setupUi()
     contentLayout->addWidget(m_previewPanel);
     
     mainLayout->addWidget(contentWidget);
+    
+    // Add history list
+    m_historyList = new QListWidget(this);
+    m_historyList->setMaximumHeight(150);
+    m_historyList->setHidden(true);
+    mainLayout->addWidget(m_historyList);
+    
+    connect(m_historyList, &QListWidget::itemDoubleClicked, this, &MainWindow::onHistoryItemDoubleClicked);
+    
+    // Load history
+    loadHistory();
     
     // Connect signals
     connect(m_saveButton, &QPushButton::clicked, this, &MainWindow::saveApiKey);
@@ -448,17 +482,12 @@ void MainWindow::uploadFile(const QString& filePath)
         return;
     }
     
-    qDebug() << "Starting upload for file:" << filePath;
-    
     QFile* file = new QFile(filePath);
     if (!file->open(QIODevice::ReadOnly)) {
-        qDebug() << "Failed to open file:" << file->errorString();
         QMessageBox::warning(this, "Error", "Failed to open file: " + file->errorString());
         file->deleteLater();
         return;
     }
-    
-    qDebug() << "File opened successfully. Size:" << file->size() << "bytes";
     
     QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     
@@ -466,7 +495,6 @@ void MainWindow::uploadFile(const QString& filePath)
     QHttpPart filePart;
     QString mimeType = getMimeType(filePath);
     filePart.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(mimeType));
-    qDebug() << "Using MIME type:" << mimeType;
     
     filePart.setHeader(QNetworkRequest::ContentDispositionHeader, 
                       QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
@@ -480,11 +508,6 @@ void MainWindow::uploadFile(const QString& filePath)
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                      QString("multipart/form-data; boundary=%1").arg(multiPart->boundary().data()));
     request.setRawHeader("key", m_apiKey.toUtf8());
-    
-    qDebug() << "Sending request to:" << url.toString();
-    qDebug() << "Headers:";
-    qDebug() << "- Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader).toString();
-    qDebug() << "- Key:" << m_apiKey.left(4) + "..." << "(truncated for security)";
     
     m_currentUpload = m_networkManager.post(request, multiPart);
     m_currentUpload->setProperty("filePath", filePath);
@@ -506,98 +529,68 @@ void MainWindow::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
     if (bytesTotal > 0) {
         int progress = static_cast<int>((bytesSent * 100) / bytesTotal);
         m_progressBar->setValue(progress);
-        qDebug() << "Upload progress:" << bytesSent << "/" << bytesTotal << "bytes (" << progress << "%)";
     }
 }
 
 void MainWindow::uploadFinished()
 {
-    m_progressBar->hide();
-    m_selectButton->setEnabled(true);
+    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
     
-    if (m_currentUpload->error() == QNetworkReply::NoError) {
-        QByteArray response = m_currentUpload->readAll();
-        qDebug() << "Upload completed successfully. Response:" << response;
+    m_progressBar->hide();
+    m_dropArea->setEnabled(true);
+    
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray response = reply->readAll();
         showUploadResult(response);
+        
+        // Auto-copy URL if enabled
+        if (m_autoCopyAction && m_autoCopyAction->isChecked()) {
+            QClipboard* clipboard = QGuiApplication::clipboard();
+            clipboard->setText(m_currentImageUrl);
+            m_statusBar->showMessage("URL copied to clipboard!", 3000);
+        }
     } else {
-        QString errorString = m_currentUpload->errorString();
-        int statusCode = m_currentUpload->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        
-        qDebug() << "Upload failed:";
-        qDebug() << "- Status code:" << statusCode;
-        qDebug() << "- Error:" << errorString;
-        qDebug() << "- Raw response:" << m_currentUpload->readAll();
-        
-        QMessageBox::warning(this, "Upload Error",
-                           QString("Failed to upload file (Status: %1)\nError: %2")
-                           .arg(statusCode)
-                           .arg(errorString));
+        QString errorMsg = reply->errorString();
+        if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+            int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            errorMsg = QString("Server returned error %1: %2").arg(statusCode).arg(errorMsg);
+        }
+        QMessageBox::critical(this, "Upload Error", 
+                            "Failed to upload file: " + errorMsg + 
+                            "\nPlease check your internet connection and API key.");
     }
     
-    m_currentUpload->deleteLater();
-    m_currentUpload = nullptr;
+    reply->deleteLater();
 }
 
 void MainWindow::showUploadResult(const QByteArray& response)
 {
-    qDebug() << "Raw response:" << response;
-    
-    QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(response, &parseError);
-    
-    if (parseError.error != QJsonParseError::NoError) {
-        qDebug() << "JSON parse error:" << parseError.errorString();
-        QMessageBox::warning(this, "Error", "Failed to parse server response");
+    QJsonDocument doc = QJsonDocument::fromJson(response);
+    if (!doc.isObject()) {
+        QMessageBox::warning(this, "Error", "Invalid response from server");
         return;
     }
     
     QJsonObject obj = doc.object();
-    qDebug() << "Parsed JSON:" << doc.toJson();
-    
-    if (obj.contains("success") && obj["success"].toBool()) {
-        QString imageUrl = obj["imageUrl"].toString();
-        QString rawUrl = obj["rawUrl"].toString();
-        QString deleteUrl = obj["deletionUrl"].toString();
-        
-        qDebug() << "Extracted URLs:";
-        qDebug() << "- Image URL:" << imageUrl;
-        qDebug() << "- Raw URL:" << rawUrl;
-        qDebug() << "- Delete URL:" << deleteUrl;
-        
-        // Store the file path before clearing m_currentUpload
-        QString filePath = m_currentUpload->property("filePath").toString();
-        QFileInfo fileInfo(filePath);
-        
-        // Update preview panel with file info
-        m_fileNameLabel->setText(fileInfo.fileName());
-        QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
-        m_fileSizeLabel->setText(size);
-        
-        // Store URLs
-        m_currentImageUrl = imageUrl;
-        m_currentRawUrl = rawUrl;
-        m_currentDeleteUrl = deleteUrl;
-        
-        // Handle preview
-        if (isImageFile(filePath)) {
-            qDebug() << "Starting preview download for image file";
-            downloadPreviewImage();
-        } else {
-            qDebug() << "Using default icon for non-image file";
-            QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
-            m_previewImage->setPixmap(defaultIcon);
-        }
-        
-        m_previewPanel->show();
-    } else {
-        QString error = obj["message"].toString("Upload failed");
-        qDebug() << "Upload failed:" << error;
-        QMessageBox::warning(this, "Error", error);
-        clearPreviewPanel();
+    if (!obj["success"].toBool()) {
+        QString message = obj["message"].toString("Unknown error");
+        QMessageBox::warning(this, "Upload Failed", message);
+        return;
     }
     
-    m_progressBar->hide();
-    m_dropArea->setEnabled(true);
+    QJsonObject data = obj["data"].toObject();
+    QString imageUrl = data["url"].toString();
+    QString rawUrl = data["raw"].toString();
+    QString deleteUrl = data["delete"].toString();
+    
+    updatePreviewPanel(imageUrl, rawUrl, deleteUrl);
+    
+    // Add to history
+    QString fileName = QFileInfo(m_currentUpload->property("filePath").toString()).fileName();
+    addToHistory(fileName, imageUrl, rawUrl, deleteUrl);
+    
+    m_statusBar->showMessage("File uploaded successfully!", 3000);
 }
 
 void MainWindow::clearPreviewPanel()
@@ -669,4 +662,67 @@ bool MainWindow::isImageFile(const QString& filePath) const
     return extension == "jpg" || extension == "jpeg" || 
            extension == "png" || extension == "gif" || 
            extension == "bmp" || extension == "webp";
+}
+
+void MainWindow::loadHistory()
+{
+    QStringList history = m_settings.value("upload_history").toStringList();
+    for (const QString& entry : history) {
+        QJsonDocument doc = QJsonDocument::fromJson(entry.toUtf8());
+        if (doc.isObject()) {
+            QJsonObject obj = doc.object();
+            addToHistory(obj["name"].toString(), 
+                        obj["image"].toString(),
+                        obj["raw"].toString(),
+                        obj["delete"].toString());
+        }
+    }
+    
+    if (!m_historyList->count()) {
+        m_historyList->setHidden(true);
+    }
+}
+
+void MainWindow::addToHistory(const QString& fileName, const QString& imageUrl, 
+                            const QString& rawUrl, const QString& deleteUrl)
+{
+    // Create history item
+    auto* item = new QListWidgetItem(fileName);
+    item->setData(Qt::UserRole, QStringList({imageUrl, rawUrl, deleteUrl}));
+    
+    // Add to list and show if hidden
+    m_historyList->insertItem(0, item);
+    m_historyList->setHidden(false);
+    
+    // Save to settings
+    QJsonObject entry;
+    entry["name"] = fileName;
+    entry["image"] = imageUrl;
+    entry["raw"] = rawUrl;
+    entry["delete"] = deleteUrl;
+    
+    QStringList history = m_settings.value("upload_history").toStringList();
+    history.prepend(QJsonDocument(entry).toJson(QJsonDocument::Compact));
+    
+    // Keep only last 20 entries
+    while (history.size() > 20) {
+        history.removeLast();
+    }
+    
+    m_settings.setValue("upload_history", history);
+}
+
+void MainWindow::clearHistory()
+{
+    m_historyList->clear();
+    m_historyList->setHidden(true);
+    m_settings.remove("upload_history");
+}
+
+void MainWindow::onHistoryItemDoubleClicked(QListWidgetItem* item)
+{
+    QStringList urls = item->data(Qt::UserRole).toStringList();
+    if (urls.size() == 3) {
+        updatePreviewPanel(urls[0], urls[1], urls[2]);
+    }
 }
