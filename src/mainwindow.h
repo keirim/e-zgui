@@ -25,11 +25,13 @@ protected:
 
 private slots:
     void saveApiKey();
+    void logout();
     void checkAndPromptApiKey();
     void handleFileSelection();
     void uploadFile(const QString& filePath);
     void uploadProgress(qint64 bytesSent, qint64 bytesTotal);
     void uploadFinished();
+    void validateApiKeyResponse(QNetworkReply* reply);
 
 private:
     void setupUi();
@@ -38,6 +40,8 @@ private:
     void loadApiKey();
     void updateDropAreaStyle(bool isDragOver = false);
     void showUploadResult(const QByteArray& response);
+    void validateApiKey(const QString& key);
+    void updateUiForValidation(bool isValid, const QString& message = QString());
 
     static bool isValidFileType(const QString& filePath);
     static bool isFileSizeValid(const QString& filePath);
@@ -50,6 +54,7 @@ private:
     // UI Elements
     QLineEdit* m_apiKeyInput = nullptr;
     QPushButton* m_saveButton = nullptr;
+    QPushButton* m_logoutButton = nullptr;
     QWidget* m_apiKeyWidget = nullptr;
     QLabel* m_statusLabel = nullptr;
     QWidget* m_dropArea = nullptr;

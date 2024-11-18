@@ -32,7 +32,6 @@ MainWindow::MainWindow(QWidget *parent)
     
     setupUi();
     loadApiKey();
-    checkAndPromptApiKey();
 }
 
 void MainWindow::setupUi()
@@ -53,6 +52,12 @@ void MainWindow::setupUi()
     m_statusLabel = new QLabel(this);
     m_statusLabel->setObjectName("statusLabel");
     headerLayout->addWidget(m_statusLabel);
+    
+    // Logout button (hidden by default)
+    m_logoutButton = new QPushButton("Logout", this);
+    m_logoutButton->setObjectName("logoutButton");
+    m_logoutButton->hide();
+    headerLayout->addWidget(m_logoutButton, 0, Qt::AlignRight);
     
     mainLayout->addWidget(headerWidget);
     
@@ -115,20 +120,102 @@ void MainWindow::setupUi()
     
     // Connect signals
     connect(m_saveButton, &QPushButton::clicked, this, &MainWindow::saveApiKey);
+    connect(m_logoutButton, &QPushButton::clicked, this, &MainWindow::logout);
     connect(m_selectButton, &QPushButton::clicked, this, &MainWindow::handleFileSelection);
     
     // Enable drag and drop
     setAcceptDrops(true);
 }
 
+void MainWindow::validateApiKey(const QString& key)
+{
+    QUrl url(QString("https://api.e-z.gg/paste/config"));
+    QUrlQuery query;
+    query.addQueryItem("key", key);
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    QNetworkReply* reply = m_networkManager.get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        validateApiKeyResponse(reply);
+    });
+}
+
+void MainWindow::validateApiKeyResponse(QNetworkReply* reply)
+{
+    reply->deleteLater();
+    
+    if (reply->error() == QNetworkReply::NoError) {
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (statusCode == 200) {
+            m_settings.setValue("api_key", m_apiKeyInput->text().trimmed());
+            m_apiKey = m_apiKeyInput->text().trimmed();
+            m_apiKeyInput->clear();
+            updateUiForValidation(true, "API Key validated successfully!");
+        } else {
+            updateUiForValidation(false, "Invalid API Key");
+        }
+    } else {
+        updateUiForValidation(false, "Failed to validate API Key: " + reply->errorString());
+    }
+}
+
+void MainWindow::updateUiForValidation(bool isValid, const QString& message)
+{
+    if (isValid) {
+        m_statusLabel->setText("✓ API Key Configured");
+        m_statusLabel->setStyleSheet("color: #00ff00;");
+        m_apiKeyWidget->hide();
+        m_dropArea->setEnabled(true);
+        m_logoutButton->show();
+        if (!message.isEmpty()) {
+            QMessageBox::information(this, "Success", message);
+        }
+    } else {
+        m_statusLabel->setText("✗ API Key Not Configured");
+        m_statusLabel->setStyleSheet("color: #ff4444;");
+        m_apiKeyWidget->show();
+        m_dropArea->setEnabled(false);
+        m_logoutButton->hide();
+        if (!message.isEmpty()) {
+            QMessageBox::warning(this, "Validation Error", message);
+        }
+    }
+}
+
+void MainWindow::logout()
+{
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this, "Confirm Logout",
+        "Are you sure you want to logout? This will remove your API key.",
+        QMessageBox::Yes | QMessageBox::No
+    );
+    
+    if (reply == QMessageBox::Yes) {
+        m_settings.remove("api_key");
+        m_apiKey.clear();
+        updateUiForValidation(false);
+    }
+}
+
 void MainWindow::loadApiKey()
 {
     m_apiKey = m_settings.value("api_key").toString();
+    if (!m_apiKey.isEmpty()) {
+        validateApiKey(m_apiKey);
+    }
 }
 
-bool MainWindow::hasValidApiKey() const
+void MainWindow::saveApiKey()
 {
-    return !m_apiKey.isEmpty();
+    QString newKey = m_apiKeyInput->text().trimmed();
+    if (newKey.isEmpty()) {
+        QMessageBox::warning(this, "Invalid API Key", "Please enter a valid API key.");
+        return;
+    }
+    
+    validateApiKey(newKey);
 }
 
 void MainWindow::checkAndPromptApiKey()
@@ -146,20 +233,9 @@ void MainWindow::checkAndPromptApiKey()
     }
 }
 
-void MainWindow::saveApiKey()
+bool MainWindow::hasValidApiKey() const
 {
-    QString newKey = m_apiKeyInput->text().trimmed();
-    if (newKey.isEmpty()) {
-        QMessageBox::warning(this, "Invalid API Key", "Please enter a valid API key.");
-        return;
-    }
-    
-    m_settings.setValue("api_key", newKey);
-    m_apiKey = newKey;
-    m_apiKeyInput->clear();
-    
-    checkAndPromptApiKey();
-    QMessageBox::information(this, "Success", "API key has been saved successfully.");
+    return !m_apiKey.isEmpty();
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event)
