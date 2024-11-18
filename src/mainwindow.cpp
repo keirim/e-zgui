@@ -24,6 +24,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QListWidget>
+#include <QStatusBar>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
