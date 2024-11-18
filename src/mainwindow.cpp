@@ -211,11 +211,14 @@ void MainWindow::validateApiKeyResponse(QNetworkReply* reply)
             m_apiKey = m_apiKeyInput->text().trimmed();
             m_apiKeyInput->clear();
             updateUiForValidation(true, "API Key validated successfully!");
+            m_dropArea->setEnabled(true);  // Enable drop area when key is valid
         } else {
             updateUiForValidation(false, "Invalid API Key");
+            m_dropArea->setEnabled(false);  // Disable drop area when key is invalid
         }
     } else {
         updateUiForValidation(false, "Failed to validate API Key: " + reply->errorString());
+        m_dropArea->setEnabled(false);  // Disable drop area on validation error
     }
 }
 
@@ -262,6 +265,9 @@ void MainWindow::loadApiKey()
     m_apiKey = m_settings.value("api_key").toString();
     if (!m_apiKey.isEmpty()) {
         validateApiKey(m_apiKey);
+    } else {
+        updateUiForValidation(false);
+        m_dropArea->setEnabled(false);
     }
 }
 
@@ -392,16 +398,23 @@ void MainWindow::updateDropAreaStyle(bool isDragOver)
 
 void MainWindow::uploadFile(const QString& filePath)
 {
-    qDebug() << "Starting upload for file:" << filePath;
-    
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qDebug() << "Failed to open file:" << file.errorString();
-        QMessageBox::warning(this, "Error", "Failed to open file: " + file.errorString());
+    if (m_apiKey.isEmpty()) {
+        QMessageBox::warning(this, "Error", "Please enter a valid API key first.");
+        updateUiForValidation(false);
         return;
     }
     
-    qDebug() << "File opened successfully. Size:" << file.size() << "bytes";
+    qDebug() << "Starting upload for file:" << filePath;
+    
+    QFile* file = new QFile(filePath);
+    if (!file->open(QIODevice::ReadOnly)) {
+        qDebug() << "Failed to open file:" << file->errorString();
+        QMessageBox::warning(this, "Error", "Failed to open file: " + file->errorString());
+        file->deleteLater();
+        return;
+    }
+    
+    qDebug() << "File opened successfully. Size:" << file->size() << "bytes";
     
     QHttpMultiPart* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
     
@@ -411,7 +424,7 @@ void MainWindow::uploadFile(const QString& filePath)
     filePart.setHeader(QNetworkRequest::ContentDispositionHeader, 
                       QVariant(QString("form-data; name=\"file\"; filename=\"%1\"")
                               .arg(QFileInfo(filePath).fileName())));
-    filePart.setBodyDevice(&file);
+    filePart.setBodyDevice(file);
     multiPart->append(filePart);
     
     // Create and send request
@@ -419,7 +432,7 @@ void MainWindow::uploadFile(const QString& filePath)
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                      QString("multipart/form-data; boundary=%1").arg(multiPart->boundary().data()));
-    request.setRawHeader("Key", m_apiKey.toUtf8());
+    request.setRawHeader("key", m_apiKey.toUtf8());  // Changed "Key" to "key"
     
     qDebug() << "Sending request to:" << url.toString();
     qDebug() << "Headers:";
@@ -429,7 +442,7 @@ void MainWindow::uploadFile(const QString& filePath)
     m_currentUpload = m_networkManager.post(request, multiPart);
     m_currentUpload->setProperty("filePath", filePath);
     multiPart->setParent(m_currentUpload);
-    file.setParent(m_currentUpload);
+    file->setParent(m_currentUpload);  // Changed file ownership
     
     connect(m_currentUpload, &QNetworkReply::uploadProgress,
             this, &MainWindow::uploadProgress);
@@ -482,9 +495,16 @@ void MainWindow::showUploadResult(const QByteArray& response)
 {
     qDebug() << "Raw response:" << response;
     
-    QJsonDocument doc = QJsonDocument::fromJson(response);
-    QJsonObject obj = doc.object();
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(response, &parseError);
     
+    if (parseError.error != QJsonParseError::NoError) {
+        qDebug() << "JSON parse error:" << parseError.errorString();
+        QMessageBox::warning(this, "Error", "Failed to parse server response");
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
     qDebug() << "Parsed JSON:" << doc.toJson();
     
     if (obj.contains("success") && obj["success"].toBool()) {
@@ -497,7 +517,31 @@ void MainWindow::showUploadResult(const QByteArray& response)
         qDebug() << "- Raw URL:" << rawUrl;
         qDebug() << "- Delete URL:" << deleteUrl;
         
-        updatePreviewPanel(imageUrl, rawUrl, deleteUrl);
+        // Store the file path before clearing m_currentUpload
+        QString filePath = m_currentUpload->property("filePath").toString();
+        QFileInfo fileInfo(filePath);
+        
+        // Update preview panel with file info
+        m_fileNameLabel->setText(fileInfo.fileName());
+        QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
+        m_fileSizeLabel->setText(size);
+        
+        // Store URLs
+        m_currentImageUrl = imageUrl;
+        m_currentRawUrl = rawUrl;
+        m_currentDeleteUrl = deleteUrl;
+        
+        // Handle preview
+        if (isImageFile(filePath)) {
+            qDebug() << "Starting preview download for image file";
+            downloadPreviewImage();
+        } else {
+            qDebug() << "Using default icon for non-image file";
+            QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
+            m_previewImage->setPixmap(defaultIcon);
+        }
+        
+        m_previewPanel->show();
     } else {
         QString error = obj["message"].toString("Upload failed");
         qDebug() << "Upload failed:" << error;
@@ -507,52 +551,6 @@ void MainWindow::showUploadResult(const QByteArray& response)
     
     m_progressBar->hide();
     m_dropArea->setEnabled(true);
-}
-
-void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawUrl, const QString& deleteUrl)
-{
-    qDebug() << "Updating preview panel with URLs:";
-    qDebug() << "- Image URL:" << imageUrl;
-    qDebug() << "- Raw URL:" << rawUrl;
-    qDebug() << "- Delete URL:" << deleteUrl;
-    
-    m_currentImageUrl = imageUrl;
-    m_currentRawUrl = rawUrl;
-    m_currentDeleteUrl = deleteUrl;
-    
-    if (!m_currentUpload) {
-        qDebug() << "Error: m_currentUpload is null";
-        return;
-    }
-    
-    QString filePath = m_currentUpload->property("filePath").toString();
-    qDebug() << "File path from property:" << filePath;
-    
-    if (filePath.isEmpty()) {
-        qDebug() << "Error: File path is empty";
-        return;
-    }
-    
-    QFileInfo fileInfo(filePath);
-    qDebug() << "File info:";
-    qDebug() << "- Name:" << fileInfo.fileName();
-    qDebug() << "- Size:" << fileInfo.size() << "bytes";
-    qDebug() << "- Exists:" << fileInfo.exists();
-    
-    m_fileNameLabel->setText(fileInfo.fileName());
-    QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
-    m_fileSizeLabel->setText(size);
-    
-    if (isImageFile(filePath)) {
-        qDebug() << "Starting preview download for image file";
-        downloadPreviewImage();
-    } else {
-        qDebug() << "Using default icon for non-image file";
-        QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
-        m_previewImage->setPixmap(defaultIcon);
-    }
-    
-    m_previewPanel->show();
 }
 
 void MainWindow::clearPreviewPanel()
