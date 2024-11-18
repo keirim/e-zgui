@@ -493,10 +493,9 @@ void MainWindow::showUploadResult(const QByteArray& response)
     QJsonObject obj = doc.object();
     
     if (obj.contains("success") && obj["success"].toBool()) {
-        QJsonObject data = obj["data"].toObject();
-        QString imageUrl = data["imageUrl"].toString();
-        QString rawUrl = data["rawUrl"].toString();
-        QString deleteUrl = data["deletionUrl"].toString();
+        QString imageUrl = obj["imageUrl"].toString();
+        QString rawUrl = obj["rawUrl"].toString();
+        QString deleteUrl = obj["deletionUrl"].toString();
         
         updatePreviewPanel(imageUrl, rawUrl, deleteUrl);
     } else {
@@ -515,13 +514,15 @@ void MainWindow::updatePreviewPanel(const QString& imageUrl, const QString& rawU
     m_currentRawUrl = rawUrl;
     m_currentDeleteUrl = deleteUrl;
     
-    QFileInfo fileInfo(m_currentUpload->property("filePath").toString());
-    m_fileNameLabel->setText(fileInfo.fileName());
+    // Store the file path before starting the preview download
+    QString filePath = m_currentUpload->property("filePath").toString();
+    QFileInfo fileInfo(filePath);
     
+    m_fileNameLabel->setText(fileInfo.fileName());
     QString size = QString::number(fileInfo.size() / 1024.0 / 1024.0, 'f', 2) + " MB";
     m_fileSizeLabel->setText(size);
     
-    if (isImageFile(fileInfo.filePath())) {
+    if (isImageFile(filePath)) {
         downloadPreviewImage();
     } else {
         QPixmap defaultIcon = QIcon::fromTheme("text-x-generic").pixmap(64, 64);
